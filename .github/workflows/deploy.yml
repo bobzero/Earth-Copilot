@@ -263,6 +263,21 @@ jobs:
             # Update existing Container App
             echo "📦 Updating existing Container App..."
             
+            # Ensure ACR credentials are configured for the Container App
+            echo "🔐 Ensuring ACR credentials are configured..."
+            az acr update --name "$ACR_NAME" --admin-enabled true --output none
+            ACR_USERNAME=$(az acr credential show --name "$ACR_NAME" --query "username" -o tsv)
+            ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query "passwords[0].value" -o tsv)
+            
+            # Set registry credentials on the Container App
+            az containerapp registry set \
+              --name "$CA_NAME" \
+              --resource-group "${{ env.RESOURCE_GROUP }}" \
+              --server "$ACR_LOGIN_SERVER" \
+              --username "$ACR_USERNAME" \
+              --password "$ACR_PASSWORD" \
+              --output none
+            
             # Fetch current credentials to ensure env vars are up-to-date
             echo "🔑 Fetching service credentials..."
             
