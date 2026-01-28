@@ -531,7 +531,10 @@ jobs:
           if [ -z "$WA_NAME" ]; then
             echo "  ℹ️ No Web App found - will create one"
             echo "web_app_exists=false" >> $GITHUB_OUTPUT
-            WA_NAME="app-earthcopilot-ui"
+            # Generate unique name using same suffix as other resources (extract from ACR name)
+            ACR_NAME=$(az acr list --resource-group ${{ env.RESOURCE_GROUP }} --query "[0].name" -o tsv)
+            UNIQUE_SUFFIX="${ACR_NAME#cr}"  # Remove 'cr' prefix to get suffix
+            WA_NAME="app-ec-${UNIQUE_SUFFIX}"
           else
             echo "web_app_exists=true" >> $GITHUB_OUTPUT
             echo "  ✅ Web App: $WA_NAME"
