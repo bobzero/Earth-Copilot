@@ -136,6 +136,7 @@ jobs:
 
       - name: Deploy frontend infrastructure
         id: frontend-infra
+        continue-on-error: true
         run: |
           CONTAINER_APP_URL="${{ steps.infra-outputs.outputs.container_app_url }}"
           ENABLE_PE="${{ inputs.disable_private_endpoints == true && 'false' || 'true' }}"

@@ -12,8 +12,8 @@ param enablePrivateEndpoints bool = false
 param vnetSubnetId string = ''
 
 param sku object = {
-  name: 'B1'
-  tier: 'Basic'
+  name: 'F1'
+  tier: 'Free'
 }
 
 // Private endpoints require Standard tier or higher for VNet integration
@@ -49,7 +49,7 @@ resource webApp 'Microsoft.Web/sites@2023-01-01' = {
     virtualNetworkSubnetId: !empty(vnetSubnetId) ? vnetSubnetId : null
     siteConfig: {
       linuxFxVersion: 'NODE|20-lts'
-      alwaysOn: enablePrivateEndpoints  // Supported on Standard+ only
+      alwaysOn: false  // Not supported on Free tier
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       appCommandLine: 'node server.js'  // Dependencies pre-installed during deployment
