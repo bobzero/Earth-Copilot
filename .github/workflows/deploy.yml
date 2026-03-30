@@ -1,0 +1,590 @@
+name: Deploy Earth Copilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_all:
+        description: 'Force deploy all components'
+        required: false
+        type: boolean
+        default: false
+      disable_private_endpoints:
+        description: 'Disable private endpoints (deploy without VNet lockdown)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP || 'rg-earthcopilot' }}
+  LOCATION: ${{ vars.LOCATION || 'eastus2' }}
+  PROJECT_NAME: ${{ vars.PROJECT_NAME || 'earthcopilot' }}
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Job 1: Detect Changes
+  # ─────────────────────────────────────────────
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_infra: ${{ steps.changes.outputs.infra }}
+      deploy_backend: ${{ steps.changes.outputs.backend }}
+      deploy_frontend: ${{ steps.changes.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed paths
+        id: changes
+        run: |
+          if [[ "${{ inputs.force_all }}" == "true" ]]; then
+            echo "infra=true" >> "$GITHUB_OUTPUT"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "Force all: deploying everything"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+
+          if echo "$CHANGED" | grep -qE '^earth-copilot/infra/'; then
+            echo "infra=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "infra=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if echo "$CHANGED" | grep -qE '^earth-copilot/container-app/'; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if echo "$CHANGED" | grep -qE '^earth-copilot/web-ui/'; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ─────────────────────────────────────────────
+  # Job 2: Deploy Infrastructure
+  # ─────────────────────────────────────────────
+  deploy-infra:
+    name: Deploy Infrastructure
+    needs: detect-changes
+    if: needs.detect-changes.outputs.deploy_infra == 'true' || inputs.force_all
+    runs-on: ubuntu-latest
+    environment: dev
+    outputs:
+      registry_name: ${{ steps.infra-outputs.outputs.registry_name }}
+      registry_endpoint: ${{ steps.infra-outputs.outputs.registry_endpoint }}
+      container_app_env: ${{ steps.infra-outputs.outputs.container_app_env }}
+      container_app_name: ${{ steps.infra-outputs.outputs.container_app_name }}
+      container_app_url: ${{ steps.infra-outputs.outputs.container_app_url }}
+      ai_foundry_name: ${{ steps.infra-outputs.outputs.ai_foundry_name }}
+      ai_project_endpoint: ${{ steps.infra-outputs.outputs.ai_project_endpoint }}
+      maps_subscription_key: ${{ steps.infra-outputs.outputs.maps_subscription_key }}
+      web_app_name: ${{ steps.frontend-infra.outputs.web_app_name }}
+      web_app_url: ${{ steps.frontend-infra.outputs.web_app_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy main infrastructure
+        id: deploy
+        run: |
+          DEPLOYMENT_NAME="${{ env.PROJECT_NAME }}-$(date +%Y%m%d-%H%M%S)"
+          ENABLE_PE="${{ inputs.disable_private_endpoints == true && 'false' || 'true' }}"
+
+          az deployment sub create \
+            --location "${{ env.LOCATION }}" \
+            --template-file earth-copilot/infra/main.bicep \
+            --parameters earth-copilot/infra/main.parameters.json \
+            --parameters environmentName="${{ env.PROJECT_NAME }}" \
+            --parameters location="${{ env.LOCATION }}" \
+            --parameters enablePrivateEndpoints="$ENABLE_PE" \
+            --name "$DEPLOYMENT_NAME" \
+            --output json > /tmp/deployment.json
+
+          echo "deployment_name=$DEPLOYMENT_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Get infrastructure outputs
+        id: infra-outputs
+        run: |
+          DEPLOYMENT_NAME="${{ steps.deploy.outputs.deployment_name }}"
+
+          get_output() {
+            az deployment sub show --name "$DEPLOYMENT_NAME" --query "properties.outputs.$1.value" -o tsv 2>/dev/null || echo ""
+          }
+
+          echo "registry_name=$(get_output AZURE_CONTAINER_REGISTRY_NAME)" >> "$GITHUB_OUTPUT"
+          echo "registry_endpoint=$(get_output AZURE_CONTAINER_REGISTRY_ENDPOINT)" >> "$GITHUB_OUTPUT"
+          echo "container_app_env=$(get_output AZURE_CONTAINER_APPS_ENVIRONMENT_NAME)" >> "$GITHUB_OUTPUT"
+          echo "container_app_name=$(get_output AZURE_CONTAINER_APP_NAME)" >> "$GITHUB_OUTPUT"
+          echo "container_app_url=$(get_output AZURE_CONTAINER_APP_URL)" >> "$GITHUB_OUTPUT"
+          echo "ai_foundry_name=$(get_output AZURE_AI_FOUNDRY_NAME)" >> "$GITHUB_OUTPUT"
+          echo "ai_project_endpoint=$(get_output AZURE_AI_PROJECT_ENDPOINT)" >> "$GITHUB_OUTPUT"
+          echo "maps_subscription_key=$(get_output AZURE_MAPS_SUBSCRIPTION_KEY)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy frontend infrastructure
+        id: frontend-infra
+        run: |
+          CONTAINER_APP_URL="${{ steps.infra-outputs.outputs.container_app_url }}"
+          ENABLE_PE="${{ inputs.disable_private_endpoints == true && 'false' || 'true' }}"
+
+          # Generate unique suffix matching main infra
+          RESOURCE_TOKEN=$(az deployment sub show \
+            --name "${{ steps.deploy.outputs.deployment_name }}" \
+            --query "properties.outputs.AZURE_CONTAINER_REGISTRY_NAME.value" -o tsv | sed 's/^cr//')
+
+          az deployment group create \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --template-file earth-copilot/infra/app/frontend.bicep \
+            --parameters appServicePlanName="plan-${RESOURCE_TOKEN}" \
+            --parameters webAppName="app-${RESOURCE_TOKEN}" \
+            --parameters containerAppUrl="https://${CONTAINER_APP_URL}" \
+            --parameters enablePrivateEndpoints="$ENABLE_PE" \
+            --name "frontend-$(date +%Y%m%d-%H%M%S)" \
+            --output json > /tmp/frontend.json
+
+          WEB_APP_NAME=$(jq -r '.properties.outputs.webAppName.value // empty' /tmp/frontend.json)
+          WEB_APP_URL=$(jq -r '.properties.outputs.webAppUrl.value // empty' /tmp/frontend.json)
+
+          echo "web_app_name=$WEB_APP_NAME" >> "$GITHUB_OUTPUT"
+          echo "web_app_url=$WEB_APP_URL" >> "$GITHUB_OUTPUT"
+
+  # ─────────────────────────────────────────────
+  # Job 3: Deploy Backend
+  # ─────────────────────────────────────────────
+  deploy-backend:
+    name: Deploy Backend
+    needs: [detect-changes, deploy-infra]
+    if: |
+      always() &&
+      (needs.detect-changes.outputs.deploy_backend == 'true' || inputs.force_all) &&
+      (needs.deploy-infra.result == 'success' || needs.deploy-infra.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: dev
+    outputs:
+      container_app_url: ${{ steps.deploy.outputs.container_app_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Discover resources
+        id: discover
+        run: |
+          # Use infra outputs if available, otherwise discover from Azure
+          REGISTRY="${{ needs.deploy-infra.outputs.registry_name }}"
+          if [[ -z "$REGISTRY" ]]; then
+            REGISTRY=$(az acr list --resource-group "${{ env.RESOURCE_GROUP }}" --query "[0].name" -o tsv)
+          fi
+
+          CONTAINER_APP="${{ needs.deploy-infra.outputs.container_app_name }}"
+          if [[ -z "$CONTAINER_APP" ]]; then
+            CONTAINER_APP=$(az containerapp list --resource-group "${{ env.RESOURCE_GROUP }}" --query "[0].name" -o tsv)
+          fi
+
+          echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
+          echo "container_app=$CONTAINER_APP" >> "$GITHUB_OUTPUT"
+          echo "Registry: $REGISTRY"
+          echo "Container App: $CONTAINER_APP"
+
+      - name: Open ACR firewall for build
+        run: |
+          az acr update \
+            --name "${{ steps.discover.outputs.registry }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --public-network-enabled true \
+            --default-action Allow \
+            --output none 2>/dev/null || true
+          sleep 30
+
+      - name: Build and push image via ACR Tasks
+        id: build
+        run: |
+          REGISTRY="${{ steps.discover.outputs.registry }}"
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          IMAGE_TAG="earthcopilot-api:$TIMESTAMP"
+          IMAGE_LATEST="earthcopilot-api:latest"
+
+          echo "Building image via ACR Tasks..."
+          az acr build \
+            --registry "$REGISTRY" \
+            --image "$IMAGE_TAG" \
+            --image "$IMAGE_LATEST" \
+            --file earth-copilot/container-app/Dockerfile.complete \
+            earth-copilot/
+
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Container App
+        id: deploy
+        run: |
+          REGISTRY="${{ steps.discover.outputs.registry }}"
+          CONTAINER_APP="${{ steps.discover.outputs.container_app }}"
+          IMAGE="${REGISTRY}.azurecr.io/${{ steps.build.outputs.image_tag }}"
+
+          if [[ -z "$CONTAINER_APP" ]]; then
+            echo "No Container App found — creating via first deployment..."
+            CAE_NAME="${{ needs.deploy-infra.outputs.container_app_env }}"
+            if [[ -z "$CAE_NAME" ]]; then
+              CAE_NAME=$(az containerapp env list --resource-group "${{ env.RESOURCE_GROUP }}" --query "[0].name" -o tsv)
+            fi
+
+            # Get the resource token from registry name
+            RESOURCE_TOKEN=$(echo "$REGISTRY" | sed 's/^cr//')
+            CONTAINER_APP="ca-web-${RESOURCE_TOKEN}"
+
+            az containerapp create \
+              --name "$CONTAINER_APP" \
+              --resource-group "${{ env.RESOURCE_GROUP }}" \
+              --environment "$CAE_NAME" \
+              --image "$IMAGE" \
+              --target-port 8080 \
+              --ingress external \
+              --registry-server "${REGISTRY}.azurecr.io" \
+              --registry-identity system \
+              --system-assigned \
+              --env-vars PORT=8080 USE_MANAGED_IDENTITY=true \
+              --min-replicas 0 \
+              --max-replicas 3
+          else
+            az containerapp update \
+              --name "$CONTAINER_APP" \
+              --resource-group "${{ env.RESOURCE_GROUP }}" \
+              --image "$IMAGE"
+          fi
+
+          FQDN=$(az containerapp show \
+            --name "$CONTAINER_APP" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+
+          echo "container_app_url=$FQDN" >> "$GITHUB_OUTPUT"
+          echo "Container App URL: https://$FQDN"
+
+      - name: Restore ACR firewall
+        if: always() && inputs.disable_private_endpoints != true
+        run: |
+          az acr update \
+            --name "${{ steps.discover.outputs.registry }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --default-action Deny \
+            --output none 2>/dev/null || true
+
+      - name: Verify health
+        run: |
+          FQDN="${{ steps.deploy.outputs.container_app_url }}"
+          echo "Waiting 30s for container to start..."
+          sleep 30
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://${FQDN}/api/health" || echo "000")
+          echo "Health check response: $HTTP_CODE"
+          if [[ "$HTTP_CODE" == "200" ]]; then
+            echo "Backend is healthy!"
+          else
+            echo "::warning::Health check returned $HTTP_CODE — container may still be starting"
+          fi
+
+  # ─────────────────────────────────────────────
+  # Job 4: Deploy Frontend
+  # ─────────────────────────────────────────────
+  deploy-frontend:
+    name: Deploy Frontend
+    needs: [detect-changes, deploy-infra, deploy-backend]
+    if: |
+      always() &&
+      (needs.detect-changes.outputs.deploy_frontend == 'true' || inputs.force_all) &&
+      (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: dev
+    outputs:
+      web_app_url: ${{ steps.deploy.outputs.web_app_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Discover resources
+        id: discover
+        run: |
+          WEB_APP="${{ needs.deploy-infra.outputs.web_app_name }}"
+          if [[ -z "$WEB_APP" ]]; then
+            WEB_APP=$(az webapp list --resource-group "${{ env.RESOURCE_GROUP }}" --query "[0].name" -o tsv)
+          fi
+          echo "web_app=$WEB_APP" >> "$GITHUB_OUTPUT"
+
+          # Get backend URL for VITE_API_BASE_URL
+          BACKEND_URL="${{ needs.deploy-backend.outputs.container_app_url }}"
+          if [[ -z "$BACKEND_URL" ]]; then
+            BACKEND_URL=$(az containerapp list --resource-group "${{ env.RESOURCE_GROUP }}" --query "[0].properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || echo "")
+          fi
+          echo "backend_url=$BACKEND_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build frontend
+        working-directory: earth-copilot/web-ui
+        env:
+          VITE_API_BASE_URL: https://${{ steps.discover.outputs.backend_url }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy to App Service
+        id: deploy
+        run: |
+          WEB_APP="${{ steps.discover.outputs.web_app }}"
+          cd earth-copilot/web-ui/dist
+          zip -r /tmp/deploy.zip .
+
+          az webapp deploy \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "$WEB_APP" \
+            --src-path /tmp/deploy.zip \
+            --type zip
+
+          HOSTNAME=$(az webapp show \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "$WEB_APP" \
+            --query "defaultHostName" -o tsv)
+
+          echo "web_app_url=$HOSTNAME" >> "$GITHUB_OUTPUT"
+          echo "Frontend URL: https://$HOSTNAME"
+
+  # ─────────────────────────────────────────────
+  # Job 5: Enable Agent Service
+  # ─────────────────────────────────────────────
+  enable-agent-service:
+    name: Enable Agent Service
+    needs: [deploy-infra, deploy-backend]
+    if: |
+      always() &&
+      (needs.deploy-infra.result == 'success' || needs.deploy-backend.result == 'success')
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Enable Agent Service capability hosts
+        run: |
+          SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+          RG="${{ env.RESOURCE_GROUP }}"
+
+          # Discover AI Foundry account
+          ACCOUNT_NAME="${{ needs.deploy-infra.outputs.ai_foundry_name }}"
+          if [[ -z "$ACCOUNT_NAME" ]]; then
+            ACCOUNT_NAME=$(az cognitiveservices account list --resource-group "$RG" \
+              --query "[?kind=='AIServices'].name" -o tsv | head -1)
+          fi
+
+          # Discover Container App
+          CONTAINER_APP=$(az containerapp list --resource-group "$RG" --query "[0].name" -o tsv)
+          PROJECT_NAME="earth-copilot-agents"
+          API_VERSION="2025-01-01"
+
+          echo "AI Foundry: $ACCOUNT_NAME"
+          echo "Container App: $CONTAINER_APP"
+          echo "Project: $PROJECT_NAME"
+
+          # Step 1: Enable allowProjectManagement
+          echo "Enabling project management..."
+          az rest --method patch \
+            --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT_NAME}?api-version=${API_VERSION}" \
+            --body '{"properties":{"allowProjectManagement":true}}' \
+            --output none 2>/dev/null || true
+
+          # Step 2: Ensure project exists
+          echo "Creating agent project..."
+          az rest --method put \
+            --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT_NAME}/projects/${PROJECT_NAME}?api-version=${API_VERSION}" \
+            --body "{\"location\":\"${{ env.LOCATION }}\",\"properties\":{\"description\":\"Earth Copilot Agent Service project\"}}" \
+            --output none 2>/dev/null || true
+
+          # Step 3: Create account-level capability host
+          echo "Creating account capability host..."
+          STORAGE_ID=$(az storage account list --resource-group "$RG" --query "[0].id" -o tsv)
+          az rest --method put \
+            --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT_NAME}/capabilityHosts/default?api-version=${API_VERSION}" \
+            --body "{\"properties\":{\"capabilityHostKind\":\"Agents\",\"storageConnections\":[{\"resourceId\":\"${STORAGE_ID}\"}]}}" \
+            --output none 2>/dev/null || true
+
+          sleep 30
+
+          # Step 4: Create project-level capability host
+          echo "Creating project capability host..."
+          az rest --method put \
+            --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT_NAME}/projects/${PROJECT_NAME}/capabilityHosts/default?api-version=${API_VERSION}" \
+            --body '{"properties":{"capabilityHostKind":"Agents"}}' \
+            --output none 2>/dev/null || true
+
+          # Step 5: Assign roles to Container App managed identity
+          if [[ -n "$CONTAINER_APP" ]]; then
+            PRINCIPAL_ID=$(az containerapp show --name "$CONTAINER_APP" --resource-group "$RG" \
+              --query "identity.principalId" -o tsv 2>/dev/null || echo "")
+
+            if [[ -n "$PRINCIPAL_ID" ]]; then
+              ACCOUNT_ID=$(az cognitiveservices account show --name "$ACCOUNT_NAME" --resource-group "$RG" --query id -o tsv)
+
+              echo "Assigning Azure AI User role..."
+              az role assignment create --assignee "$PRINCIPAL_ID" \
+                --role "Azure AI User" --scope "$ACCOUNT_ID" --output none 2>/dev/null || true
+
+              echo "Assigning Cognitive Services OpenAI Contributor role..."
+              az role assignment create --assignee "$PRINCIPAL_ID" \
+                --role "Cognitive Services OpenAI Contributor" --scope "$ACCOUNT_ID" --output none 2>/dev/null || true
+            fi
+
+            # Step 6: Update Container App env var
+            echo "Setting AZURE_AI_PROJECT_ENDPOINT..."
+            az containerapp update --name "$CONTAINER_APP" --resource-group "$RG" \
+              --set-env-vars "AZURE_AI_PROJECT_ENDPOINT=https://${ACCOUNT_NAME}.services.ai.azure.com/api/projects/${PROJECT_NAME}" \
+              --output none 2>/dev/null || true
+          fi
+
+          echo "Agent Service setup complete"
+
+  # ─────────────────────────────────────────────
+  # Job 6: Configure Authentication
+  # ─────────────────────────────────────────────
+  configure-auth:
+    name: Configure Auth
+    needs: [deploy-backend, deploy-frontend]
+    if: |
+      always() &&
+      (needs.deploy-backend.result == 'success' || needs.deploy-frontend.result == 'success')
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Configure Entra ID authentication
+        env:
+          AUTH_CLIENT_ID: ${{ secrets.AUTH_CLIENT_ID }}
+        run: |
+          if [[ -z "$AUTH_CLIENT_ID" ]]; then
+            echo "AUTH_CLIENT_ID secret not set — skipping authentication configuration"
+            echo "To enable auth, set AUTH_CLIENT_ID secret in the dev environment (see QUICK_DEPLOY.md Step 8.3)"
+            exit 0
+          fi
+
+          RG="${{ env.RESOURCE_GROUP }}"
+          TENANT_ID=$(az account show --query tenantId -o tsv)
+
+          # Get resource names
+          WEB_APP=$(az webapp list --resource-group "$RG" --query "[0].name" -o tsv 2>/dev/null || echo "")
+          CONTAINER_APP=$(az containerapp list --resource-group "$RG" --query "[0].name" -o tsv 2>/dev/null || echo "")
+
+          # Configure frontend (App Service) — redirect to login
+          if [[ -n "$WEB_APP" ]]; then
+            FRONTEND_URL="https://$(az webapp show --name "$WEB_APP" --resource-group "$RG" --query defaultHostName -o tsv)"
+
+            echo "Configuring auth on frontend: $WEB_APP"
+            az webapp auth update \
+              --name "$WEB_APP" \
+              --resource-group "$RG" \
+              --enabled true \
+              --action RedirectToLoginPage \
+              --aad-client-id "$AUTH_CLIENT_ID" \
+              --aad-tenant-id "$TENANT_ID" \
+              --aad-allowed-token-audiences "$FRONTEND_URL" \
+              --output none 2>/dev/null || echo "::warning::Failed to configure frontend auth"
+          fi
+
+          # Configure backend (Container App) — return 401
+          if [[ -n "$CONTAINER_APP" ]]; then
+            echo "Configuring auth on backend: $CONTAINER_APP"
+            az containerapp auth update \
+              --name "$CONTAINER_APP" \
+              --resource-group "$RG" \
+              --unauthenticated-client-action Return401 \
+              --output none 2>/dev/null || true
+
+            az containerapp auth microsoft update \
+              --name "$CONTAINER_APP" \
+              --resource-group "$RG" \
+              --client-id "$AUTH_CLIENT_ID" \
+              --tenant-id "$TENANT_ID" \
+              --yes \
+              --output none 2>/dev/null || echo "::warning::Failed to configure backend auth"
+          fi
+
+          echo "Authentication configured for client ID: $AUTH_CLIENT_ID"
+
+  # ─────────────────────────────────────────────
+  # Job 7: Summary
+  # ─────────────────────────────────────────────
+  summary:
+    name: Deployment Summary
+    needs: [deploy-infra, deploy-backend, deploy-frontend, enable-agent-service, configure-auth]
+    if: always()
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Print summary
+        run: |
+          RG="${{ env.RESOURCE_GROUP }}"
+
+          echo "## Earth Copilot Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # Get endpoints
+          FRONTEND_URL=$(az webapp list --resource-group "$RG" --query "[0].defaultHostName" -o tsv 2>/dev/null || echo "N/A")
+          BACKEND_FQDN=$(az containerapp list --resource-group "$RG" --query "[0].properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || echo "N/A")
+
+          echo "### Endpoints" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Service | URL |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---------|-----|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Frontend** | https://${FRONTEND_URL} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Backend API** | https://${BACKEND_FQDN} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **API Docs** | https://${BACKEND_FQDN}/docs |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "### Job Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Job | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Infrastructure | ${{ needs.deploy-infra.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Backend | ${{ needs.deploy-backend.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Frontend | ${{ needs.deploy-frontend.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Agent Service | ${{ needs.enable-agent-service.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Auth | ${{ needs.configure-auth.result }} |" >> "$GITHUB_STEP_SUMMARY"
+
+          echo ""
+          echo "=== Deployment Complete ==="
+          echo "Frontend: https://${FRONTEND_URL}"
+          echo "Backend:  https://${BACKEND_FQDN}"
+          echo "API Docs: https://${BACKEND_FQDN}/docs"
