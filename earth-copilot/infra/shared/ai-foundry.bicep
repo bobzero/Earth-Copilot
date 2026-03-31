@@ -84,7 +84,7 @@ resource gpt4oDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-
   }
 }
 
-// Deploy GPT-4o-mini model (faster, cheaper option)
+// Deploy GPT-4.1-mini model (faster, cheaper option — replaces deprecated gpt-4o-mini)
 resource gpt4oMiniDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = if (deployModels) {
   parent: aiFoundry
   name: 'gpt-4o-mini'
@@ -95,8 +95,8 @@ resource gpt4oMiniDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
   properties: {
     model: {
       format: 'OpenAI'
-      name: 'gpt-4o-mini'
-      version: '2024-07-18'
+      name: 'gpt-4.1-mini'
+      version: '2025-04-14'
     }
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
