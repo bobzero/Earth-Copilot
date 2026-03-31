@@ -121,8 +121,15 @@ jobs:
         run: |
           DEPLOYMENT_NAME="${{ steps.deploy.outputs.deployment_name }}"
 
+          # ARM/Bicep normalizes output keys to camelCase, so use case-insensitive jq matching
+          DEPLOY_JSON="/tmp/deployment.json"
+          if [[ ! -f "$DEPLOY_JSON" ]]; then
+            az deployment sub show --name "$DEPLOYMENT_NAME" -o json > "$DEPLOY_JSON"
+          fi
+
           get_output() {
-            az deployment sub show --name "$DEPLOYMENT_NAME" --query "properties.outputs.$1.value" -o tsv 2>/dev/null || echo ""
+            local key_lower=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+            jq -r ".properties.outputs | to_entries[] | select(.key | ascii_downcase == \"$key_lower\") | .value.value // empty" "$DEPLOY_JSON" 2>/dev/null || echo ""
           }
 
           echo "registry_name=$(get_output AZURE_CONTAINER_REGISTRY_NAME)" >> "$GITHUB_OUTPUT"
@@ -141,10 +148,9 @@ jobs:
           CONTAINER_APP_URL="${{ steps.infra-outputs.outputs.container_app_url }}"
           ENABLE_PE="${{ inputs.disable_private_endpoints == true && 'false' || 'true' }}"
 
-          # Generate unique suffix matching main infra
-          RESOURCE_TOKEN=$(az deployment sub show \
-            --name "${{ steps.deploy.outputs.deployment_name }}" \
-            --query "properties.outputs.AZURE_CONTAINER_REGISTRY_NAME.value" -o tsv | sed 's/^cr//')
+          # Generate unique suffix matching main infra (case-insensitive jq extraction)
+          DEPLOY_JSON="/tmp/deployment.json"
+          RESOURCE_TOKEN=$(jq -r '.properties.outputs | to_entries[] | select(.key | ascii_downcase == "azure_container_registry_name") | .value.value // empty' "$DEPLOY_JSON" | sed 's/^cr//')
 
           az deployment group create \
             --resource-group "${{ env.RESOURCE_GROUP }}" \
