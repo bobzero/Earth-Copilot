@@ -65,6 +65,13 @@ export interface MapContext {
     item_id?: string;
     collection?: string;
   }>;
+  stac_items?: Array<{  // Full STAC items with assets for raster analysis (NDVI, etc.)
+    id: string;
+    collection: string;
+    bbox?: number[];
+    properties: { datetime: string };
+    assets: Record<string, unknown>;
+  }>;
   has_satellite_data?: boolean; // Flag indicating if STAC imagery is loaded
   vision_mode?: boolean; // NEW: explicit vision analysis mode
   vision_pin?: { lat: number; lng: number } | null; // NEW: pin coordinates for vision analysis
@@ -811,6 +818,45 @@ class ApiService {
    * Called when user drops a pin with GEOINT mode enabled.
    * Performs terrain-based mobility analysis in N/S/E/W directions.
    */
+  async structuredSearch(params: { collection: string; location: string; datetime?: string; datetime_start?: string; datetime_end?: string }): Promise<any> {
+    debugLog('structuredSearch called', params);
+
+    if (!this.api) {
+      throw new Error('API service not initialized');
+    }
+
+    try {
+      const response = await this.api.post('/api/structured-search', params);
+      debugLog('Structured search response received', { status: response.status });
+      return response.data;
+    } catch (error: any) {
+      errorLog('Structured search API error', error);
+      throw new Error('Structured search failed. Please try again.');
+    }
+  }
+
+  async routeQuery(query: string): Promise<any> {
+    debugLog('routeQuery called', { query });
+
+    if (!this.api) {
+      throw new Error('API service not initialized');
+    }
+
+    try {
+      const response = await this.api.post('/api/query', {
+        query,
+        preferences: { interface_type: 'earth_copilot', data_source: 'planetary_computer' },
+        include_visualization: true,
+        session_id: 'route-' + Date.now()
+      });
+      debugLog('Route query response received', { status: response.status });
+      return response.data;
+    } catch (error: any) {
+      errorLog('Route query API error', error);
+      throw new Error('Query routing failed. Please try again.');
+    }
+  }
+
   async triggerGeointMobility(latitude: number, longitude: number, userContext?: string): Promise<any> {
     console.log(' API: Triggering GEOINT mobility analysis at', { latitude, longitude });
 

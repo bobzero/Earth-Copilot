@@ -223,6 +223,7 @@ const GetStartedButton: React.FC<GetStartedButtonProps> = ({ onQuerySelect }) =>
     },
     {
       category: "Water & Surface Reflectance",
+      icon: "",
       examples: [
         {
           query: "Display JRC Global Surface Water in Bangladesh",

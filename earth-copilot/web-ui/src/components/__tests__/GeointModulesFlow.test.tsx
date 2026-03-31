@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import React from 'react';
 import MapView from '../MapView';
 import Chat from '../Chat';
 import MainApp from '../MainApp';
@@ -72,25 +73,37 @@ const mockLeaflet = {
   icon: vi.fn().mockReturnValue({})
 };
 
-// Mock API service
-const mockApiService = {
-  triggerGeointAnalysis: vi.fn().mockResolvedValue({
-    result: {
-      analysis: 'Test terrain analysis result',
-      features_identified: ['hills', 'valleys', 'water'],
-      imagery_metadata: {
-        source: 'Sentinel-2',
-        date: '2025-10-21'
+// Mock API service - use vi.hoisted so it's available to vi.mock factories (which are hoisted)
+const { mockApiService } = vi.hoisted(() => ({
+  mockApiService: {
+    triggerGeointAnalysis: vi.fn().mockResolvedValue({
+      result: {
+        analysis: 'Test terrain analysis result',
+        features_identified: ['hills', 'valleys', 'water'],
+        imagery_metadata: {
+          source: 'Sentinel-2',
+          date: '2025-10-21'
+        }
       }
-    }
-  })
-};
+    })
+  }
+}));
+
+// Single top-level vi.mock that passes through all original exports
+// and only overrides triggerGeointAnalysis
+vi.mock('../../services/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/api')>();
+  return {
+    ...actual,
+    triggerGeointAnalysis: mockApiService.triggerGeointAnalysis
+  };
+});
 
 describe('GEOINT Modules End-to-End Flow', () => {
   beforeEach(() => {
     // Setup global mocks
-    (global as any).atlas = mockAzureMaps;
-    (global as any).L = mockLeaflet;
+    (globalThis as any).atlas = mockAzureMaps;
+    (globalThis as any).L = mockLeaflet;
     
     // Clear all mocks
     vi.clearAllMocks();
@@ -106,6 +119,7 @@ describe('GEOINT Modules End-to-End Flow', () => {
       
       const { container } = render(
         <MapView 
+          selectedDataset={null}
           onGeointAnalysis={onGeointAnalysis}
         />
       );
@@ -136,6 +150,7 @@ describe('GEOINT Modules End-to-End Flow', () => {
       
       const { container } = render(
         <MapView 
+          selectedDataset={null}
           onGeointAnalysis={onGeointAnalysis}
         />
       );
@@ -164,6 +179,7 @@ describe('GEOINT Modules End-to-End Flow', () => {
       
       const { container } = render(
         <MapView 
+          selectedDataset={null}
           onGeointAnalysis={onGeointAnalysis}
         />
       );
@@ -192,6 +208,7 @@ describe('GEOINT Modules End-to-End Flow', () => {
       
       const { container } = render(
         <MapView 
+          selectedDataset={null}
           onGeointAnalysis={onGeointAnalysis}
         />
       );
@@ -222,6 +239,7 @@ describe('GEOINT Modules End-to-End Flow', () => {
       
       const { container } = render(
         <MapView 
+          selectedDataset={null}
           onGeointAnalysis={onGeointAnalysis}
         />
       );
@@ -266,7 +284,7 @@ describe('GEOINT Modules End-to-End Flow', () => {
 
     it('should NOT turn green when only module is selected but pin mode not activated', async () => {
       const { container } = render(
-        <MapView />
+        <MapView selectedDataset={null} />
       );
 
       // Select a module
@@ -295,13 +313,9 @@ describe('GEOINT Modules End-to-End Flow', () => {
       const onGeointAnalysis = vi.fn();
       const onPinChange = vi.fn();
       
-      // Mock API import
-      vi.mock('../../services/api', () => ({
-        triggerGeointAnalysis: mockApiService.triggerGeointAnalysis
-      }));
-
       const { container } = render(
         <MapView 
+          selectedDataset={null}
           onGeointAnalysis={onGeointAnalysis}
           onPinChange={onPinChange}
         />
@@ -360,7 +374,7 @@ describe('GEOINT Modules End-to-End Flow', () => {
 
     it('should display pin coordinate indicator when pin is active', async () => {
       const { container } = render(
-        <MapView />
+        <MapView selectedDataset={null} />
       );
 
       // Place a pin (simulate the flow)
@@ -399,12 +413,9 @@ describe('GEOINT Modules End-to-End Flow', () => {
     it('should automatically trigger terrain analysis when pin is dropped', async () => {
       const onGeointAnalysis = vi.fn();
       
-      vi.mock('../../services/api', () => ({
-        triggerGeointAnalysis: mockApiService.triggerGeointAnalysis
-      }));
-
       const { container } = render(
         <MapView 
+          selectedDataset={null}
           onGeointAnalysis={onGeointAnalysis}
         />
       );
@@ -470,12 +481,9 @@ describe('GEOINT Modules End-to-End Flow', () => {
     it('should trigger mobility analysis with correct API module name', async () => {
       const onGeointAnalysis = vi.fn();
       
-      vi.mock('../../services/api', () => ({
-        triggerGeointAnalysis: mockApiService.triggerGeointAnalysis
-      }));
-
       const { container } = render(
         <MapView 
+          selectedDataset={null}
           onGeointAnalysis={onGeointAnalysis}
         />
       );
@@ -519,12 +527,9 @@ describe('GEOINT Modules End-to-End Flow', () => {
     it('should trigger building damage analysis with correct API module name', async () => {
       const onGeointAnalysis = vi.fn();
       
-      vi.mock('../../services/api', () => ({
-        triggerGeointAnalysis: mockApiService.triggerGeointAnalysis
-      }));
-
       const { container } = render(
         <MapView 
+          selectedDataset={null}
           onGeointAnalysis={onGeointAnalysis}
         />
       );
@@ -575,8 +580,8 @@ describe('GEOINT Modules End-to-End Flow', () => {
       });
 
       // Mock useState for messages
-      vi.spyOn(require('react'), 'useState')
-        .mockImplementation((initial) => {
+      (vi.spyOn(React, 'useState') as any)
+        .mockImplementation((initial: any) => {
           if (Array.isArray(initial)) {
             return [messages, mockSetMessages];
           }
@@ -604,7 +609,9 @@ describe('GEOINT Modules End-to-End Flow', () => {
         const { rerender } = render(
           <Chat 
             mobilityAnalysisResult={result}
-            chatMode="geoint"
+            chatMode={true}
+            geointMode={true}
+            selectedDataset={null}
             selectedModule="terrain"
           />
         );
@@ -625,17 +632,12 @@ describe('GEOINT Modules End-to-End Flow', () => {
     it('should handle GEOINT analysis API failure gracefully', async () => {
       const onGeointAnalysis = vi.fn();
       
-      // Mock API to fail
-      const failingApiService = {
-        triggerGeointAnalysis: vi.fn().mockRejectedValue(new Error('API connection failed'))
-      };
-      
-      vi.mock('../../services/api', () => ({
-        triggerGeointAnalysis: failingApiService.triggerGeointAnalysis
-      }));
+      // Temporarily make the mock reject to test error handling
+      mockApiService.triggerGeointAnalysis.mockRejectedValueOnce(new Error('API connection failed'));
 
       const { container } = render(
         <MapView 
+          selectedDataset={null}
           onGeointAnalysis={onGeointAnalysis}
         />
       );
@@ -683,6 +685,7 @@ describe('GEOINT Modules End-to-End Flow', () => {
       
       const { container } = render(
         <MapView 
+          selectedDataset={null}
           onPinChange={onPinChange}
         />
       );
@@ -709,6 +712,7 @@ describe('GEOINT Modules End-to-End Flow', () => {
       
       const { container } = render(
         <MapView 
+          selectedDataset={null}
           onPinChange={onPinChange}
         />
       );
@@ -734,7 +738,7 @@ describe('GEOINT Modules End-to-End Flow', () => {
   describe('Visual Feedback', () => {
     it('should show different button states throughout the flow', async () => {
       const { container } = render(
-        <MapView />
+        <MapView selectedDataset={null} />
       );
 
       // State 1: No module selected
@@ -768,7 +772,7 @@ describe('GEOINT Modules End-to-End Flow', () => {
 
 describe('Map Style Menu Integration', () => {
   it('should position Map Style button in bottom right corner near zoom controls', () => {
-    const { container } = render(<MapView />);
+    const { container } = render(<MapView selectedDataset={null} />);
 
     const mapStyleButton = container.querySelector('[title="Change Map Style"]') as HTMLElement;
     expect(mapStyleButton).toBeInTheDocument();
@@ -780,7 +784,7 @@ describe('Map Style Menu Integration', () => {
   });
 
   it('should use consistent styling with other map controls', () => {
-    const { container } = render(<MapView />);
+    const { container } = render(<MapView selectedDataset={null} />);
 
     const mapStyleButton = container.querySelector('[title="Change Map Style"]') as HTMLElement;
     const style = window.getComputedStyle(mapStyleButton);
@@ -793,7 +797,7 @@ describe('Map Style Menu Integration', () => {
   });
 
   it('should apply page-wide font family to Map Style dropdown', async () => {
-    const { container } = render(<MapView />);
+    const { container } = render(<MapView selectedDataset={null} />);
 
     const mapStyleButton = container.querySelector('[title="Change Map Style"]') as HTMLElement;
     fireEvent.click(mapStyleButton);

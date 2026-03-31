@@ -2516,7 +2516,7 @@ const MapView: React.FC<MapViewProps> = ({
       return;
     }
 
-    let expansionTimeoutId: NodeJS.Timeout | null = null;
+    let expansionTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const handleZoomChange = async () => {
       try {
@@ -5551,10 +5551,10 @@ const MapView: React.FC<MapViewProps> = ({
       })) || [];
       
       // Build STAC items array with assets for Vision Agent raster analysis (NDVI, etc.)
-      const stacItems = satelliteData?.items?.map((item: { id: string; collection: string; bbox: number[]; datetime: string; assets?: Record<string, unknown> }) => ({
+      const stacItems = satelliteData?.items?.map((item: { id: string; collection: string; datetime: string; assets?: Record<string, unknown> }) => ({
         id: item.id,
         collection: item.collection,
-        bbox: item.bbox,
+        bbox: (item as any).bbox,
         properties: {
           datetime: item.datetime
         },
@@ -5570,7 +5570,7 @@ const MapView: React.FC<MapViewProps> = ({
         stac_items: stacItems, // Full STAC items with assets for NDVI computation
         item_id: satelliteData?.items?.[0]?.id || null,
         datetime: satelliteData?.items?.[0]?.datetime || null,
-        zoom_level: mapProvider === 'leaflet' ? map.getZoom() : (map as atlas.Map).getCamera().zoom,
+        zoom_level: mapProvider === 'leaflet' ? map.getZoom() : (map as any).getCamera().zoom,
         has_satellite_data: !!satelliteData,  // Flag to indicate if STAC imagery is loaded
         vision_mode: visionMode,  // explicit vision mode flag
         vision_pin: visionMode ? visionPin : null  // pin coordinates for vision analysis
