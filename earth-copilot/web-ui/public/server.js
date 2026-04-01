@@ -1,11 +1,24 @@
-// Minimal static file server for Azure App Service
+// Static file server + API reverse proxy for Azure App Service
 // Serves the Vite-built frontend with SPA fallback to index.html
+// Proxies /api/* requests to the backend Container App
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const url = require('url');
 
 const PORT = process.env.PORT || 8080;
 const ROOT = __dirname;
+
+// Backend URL from App Service environment variable
+// Set via Bicep or az webapp config: VITE_API_BASE_URL=https://ca-web-xxx.azurecontainerapps.io
+const BACKEND_URL = process.env.BACKEND_URL || process.env.VITE_API_BASE_URL || '';
+
+if (BACKEND_URL) {
+  console.log(`API proxy enabled: /api/* -> ${BACKEND_URL}`);
+} else {
+  console.warn('WARNING: No BACKEND_URL or VITE_API_BASE_URL set. API proxy disabled.');
+}
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -24,9 +37,50 @@ const MIME_TYPES = {
   '.md': 'text/markdown',
 };
 
+// Reverse proxy handler for /api/* requests
+function proxyRequest(req, res) {
+  const targetUrl = BACKEND_URL + req.url;
+  const parsed = url.parse(targetUrl);
+  const transport = parsed.protocol === 'https:' ? https : http;
+
+  const proxyReq = transport.request(
+    {
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.path,
+      method: req.method,
+      headers: {
+        ...req.headers,
+        host: parsed.hostname,
+      },
+      timeout: 300000, // 5 min for long-running GEOINT queries
+    },
+    (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res, { end: true });
+    }
+  );
+
+  proxyReq.on('error', (err) => {
+    console.error('Proxy error:', err.message);
+    res.writeHead(502, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Backend unavailable', detail: err.message }));
+  });
+
+  req.pipe(proxyReq, { end: true });
+}
+
 const server = http.createServer((req, res) => {
+  const pathname = req.url.split('?')[0];
+
+  // Proxy /api/* requests to backend
+  if (pathname.startsWith('/api/') && BACKEND_URL) {
+    proxyRequest(req, res);
+    return;
+  }
+
   // Sanitize path to prevent directory traversal
-  const safePath = path.normalize(req.url.split('?')[0]).replace(/^(\.\.[/\\])+/, '');
+  const safePath = path.normalize(pathname).replace(/^(\.\.[/\\])+/, '');
   let filePath = path.join(ROOT, safePath);
 
   // Prevent path traversal outside ROOT

@@ -378,6 +378,17 @@ jobs:
           echo "web_app_url=$HOSTNAME" >> "$GITHUB_OUTPUT"
           echo "Frontend URL: https://$HOSTNAME"
 
+      - name: Configure App Service backend proxy
+        run: |
+          WEB_APP="${{ steps.discover.outputs.web_app }}"
+          BACKEND_URL="https://${{ steps.discover.outputs.backend_url }}"
+          echo "Setting BACKEND_URL=$BACKEND_URL on $WEB_APP"
+          az webapp config appsettings set \
+            --name "$WEB_APP" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --settings "BACKEND_URL=$BACKEND_URL" \
+            --output none
+
   # ─────────────────────────────────────────────
   # Job 5: Enable Agent Service
   # ─────────────────────────────────────────────
