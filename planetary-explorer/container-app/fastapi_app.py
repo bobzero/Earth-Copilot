@@ -8406,8 +8406,10 @@ async def geoint_terrain_analysis(request: Request):
                     clean_b64 = screenshot
                     if clean_b64.startswith('data:image'):
                         clean_b64 = clean_b64.split(',', 1)[1]
+                    _terrain_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5")
+                    _terrain_extra = {"reasoning_effort": "minimal"} if _terrain_deployment.lower().startswith(("gpt-5", "o1", "o3", "o4")) else {"temperature": 1.0}
                     vision_resp = await _terrain_client.chat.completions.create(
-                        model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5"),
+                        model=_terrain_deployment,
                         messages=[
                             {"role": "system", "content": "You are an expert terrain analyst. Analyze satellite imagery for terrain features. Be concise: respond in <=5 short bullets."},
                             {"role": "user", "content": [
@@ -8418,8 +8420,7 @@ async def geoint_terrain_analysis(request: Request):
                             ]}
                         ],
                         max_completion_tokens=700,
-                        temperature=1.0,
-                        reasoning_effort="minimal",
+                        **_terrain_extra,
                     )
                     visual_analysis = vision_resp.choices[0].message.content
                 except Exception as vis_err:
@@ -8575,15 +8576,16 @@ async def geoint_terrain_chat(request: Request):
             # Synthesize with _terrain_client
             synthesis_prompt = f"User question: {message}\n\nTerrain data for ({latitude:.4f}, {longitude:.4f}):\n{tool_summary}"
             try:
+                _terrain_synth_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5")
+                _terrain_synth_extra = {"reasoning_effort": "minimal"} if _terrain_synth_deployment.lower().startswith(("gpt-5", "o1", "o3", "o4")) else {"temperature": 1.0}
                 synth_resp = await _terrain_client.chat.completions.create(
-                    model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5"),
+                    model=_terrain_synth_deployment,
                     messages=[
                         {"role": "system", "content": "You are a terrain analysis expert. Synthesize the provided DEM/terrain tool data into a clear, concise answer in <=6 short bullets."},
                         {"role": "user", "content": synthesis_prompt}
                     ],
-                    temperature=1.0,
                     max_completion_tokens=700,
-                    reasoning_effort="minimal",
+                    **_terrain_synth_extra,
                 )
                 response_text = synth_resp.choices[0].message.content
             except Exception:
@@ -9117,8 +9119,10 @@ async def geoint_building_damage_analysis(request: Request):
                 prompt += f"\nUser question: {user_query}\n"
             
             try:
+                _bd_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5")
+                _bd_extra = {"reasoning_effort": "minimal"} if _bd_deployment.lower().startswith(("gpt-5", "o1", "o3", "o4")) else {"temperature": 1.0}
                 vision_response = await _vision_client.chat.completions.create(
-                    model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5"),
+                    model=_bd_deployment,
                     messages=[
                         {"role": "system", "content": "You are a GEOINT Building Damage Assessment expert. Analyze the provided imagery and give structured damage assessments. Keep the response concise."},
                         {"role": "user", "content": [
@@ -9126,9 +9130,8 @@ async def geoint_building_damage_analysis(request: Request):
                             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{clean_b64}", "detail": "low"}}
                         ]}
                     ],
-                    temperature=1.0,
                     max_completion_tokens=900,
-                    reasoning_effort="minimal",
+                    **_bd_extra,
                 )
                 response_text = vision_response.choices[0].message.content
                 elapsed = time.time() - agent_start
@@ -9213,9 +9216,8 @@ async def geoint_building_damage_analysis(request: Request):
                                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{clean_b64}", "detail": "low"}}
                             ]}
                         ],
-                        temperature=1.0,
                         max_completion_tokens=700,
-                        reasoning_effort="minimal",
+                        **({"reasoning_effort": "minimal"} if os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5").lower().startswith(("gpt-5", "o1", "o3", "o4")) else {"temperature": 1.0}),
                     )
                     visual_analysis = vision_response.choices[0].message.content
                     logger.info(f"Building Damage: Screenshot analysis completed ({len(visual_analysis)} chars)")

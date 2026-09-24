@@ -200,6 +200,10 @@ async def _llm_review(dossier: dict[str, Any]) -> dict[str, Any]:
         "skipped_dimensions": dossier.get("skipped_dimensions"),
         "planner": dossier.get("planner"),
     }
+    # gpt-5/o-series accept reasoning_effort but reject non-default temperature;
+    # gpt-4o family is the reverse. Mirror the LoadAgent shim.
+    is_reasoning = deployment.lower().startswith(("gpt-5", "o1", "o3", "o4"))
+    extra: dict = {"reasoning_effort": "minimal"} if is_reasoning else {"temperature": 0.0}
     response = await client.chat.completions.create(
         model=deployment,
         messages=[
@@ -207,8 +211,7 @@ async def _llm_review(dossier: dict[str, Any]) -> dict[str, Any]:
             {"role": "user", "content": json.dumps(compact, default=str)},
         ],
         response_format={"type": "json_schema", "json_schema": _REVIEW_SCHEMA},
-        temperature=0.0,
-        reasoning_effort="minimal",
+        **extra,
     )
     return json.loads(response.choices[0].message.content or "{}")
 

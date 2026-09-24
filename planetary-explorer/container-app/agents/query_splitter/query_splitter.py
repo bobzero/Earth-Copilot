@@ -288,6 +288,10 @@ class QuerySplitter:
             # 2) LLM call
             client = self._get_client()
             user_prompt = SPLITTER_USER_PROMPT_TEMPLATE.format(query=query.strip())
+            # gpt-5/o-series accept reasoning_effort but reject non-default temperature;
+            # gpt-4o family is the reverse. Mirror the LoadAgent shim.
+            is_reasoning = (self.deployment or "").lower().startswith(("gpt-5", "o1", "o3", "o4"))
+            extra: dict = {"reasoning_effort": "minimal"} if is_reasoning else {"temperature": 0.0}
             response = await client.chat.completions.create(
                 model=self.deployment,
                 messages=[
@@ -298,8 +302,7 @@ class QuerySplitter:
                     "type": "json_schema",
                     "json_schema": SPLITTER_DECISION_SCHEMA,
                 },
-                temperature=0.0,
-                reasoning_effort="minimal",
+                **extra,
             )
             content = response.choices[0].message.content or "{}"
             raw = json.loads(content)

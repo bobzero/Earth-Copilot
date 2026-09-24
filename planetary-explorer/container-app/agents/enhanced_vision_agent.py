@@ -1122,8 +1122,11 @@ class EnhancedVisionAgent:
                 {"role": "user", "content": user_content},
             ],
             "max_completion_tokens": 700,
-            "reasoning_effort": "minimal",
         }
+        # reasoning_effort is only accepted by reasoning-capable models (o1/o3/o4/gpt-5 family);
+        # gpt-4o and other non-reasoning deployments reject it with a 400.
+        if deployment.lower().startswith(("gpt-5", "o1", "o3", "o4")):
+            payload["reasoning_effort"] = "minimal"
 
         # Determine the correct URL (handle both Azure OpenAI and AI Foundry endpoints)
         url = f"{endpoint.rstrip('/')}/openai/deployments/{deployment}/chat/completions?api-version=2024-12-01-preview"
