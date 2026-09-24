@@ -12,7 +12,7 @@ What it extracts from planetary-computer-tasks repository:
 - Categories for organizing collections
 
 Output:
-    - earth-copilot/container-app/pc_rendering_config.json
+    - planetary-explorer/container-app/pc_rendering_config.json
     
 This JSON is the SINGLE SOURCE OF TRUTH:
     - Loaded by pc_tasks_config_loader.py at app startup
@@ -530,7 +530,7 @@ class UnifiedPCExtractor:
         }
         
         # Output to container-app directory
-        output_dir = Path(__file__).parent.parent / "earth-copilot" / "container-app"
+        output_dir = Path(__file__).parent.parent / "planetary-explorer" / "container-app"
         output_file = output_dir / "pc_rendering_config.json"
         
         print(f"\n Exporting unified configuration...")

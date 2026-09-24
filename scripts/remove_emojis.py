@@ -24,16 +24,16 @@ SCAN_EXTENSIONS = {'.py', '.ts', '.tsx', '.js', '.jsx', '.sh', '.md', '.ps1', '.
 
 # Files where ALL emojis are UI-facing (skip entirely)
 UI_ONLY_FILES = {
-    'earth-copilot/web-ui/src/config/collectionConfig.ts',  # emoji: property values rendered in UI
-    'earth-copilot/web-ui/src/ui/CatalogPanel.tsx',         # JSX heading with emoji
+    'planetary-explorer/web-ui/src/config/collectionConfig.ts',  # emoji: property values rendered in UI
+    'planetary-explorer/web-ui/src/ui/CatalogPanel.tsx',         # JSX heading with emoji
 }
 
 # Files with MIXED UI + non-UI emojis (selective stripping from console/logger/comment lines only)
 MIXED_UI_FILES = {
-    'earth-copilot/web-ui/src/components/Chat.tsx',
-    'earth-copilot/web-ui/src/services/api.ts',
-    'earth-copilot/web-ui/src/App.tsx',
-    'earth-copilot/container-app/geoint/raster_data_fetcher.py',
+    'planetary-explorer/web-ui/src/components/Chat.tsx',
+    'planetary-explorer/web-ui/src/services/api.ts',
+    'planetary-explorer/web-ui/src/App.tsx',
+    'planetary-explorer/container-app/geoint/raster_data_fetcher.py',
 }
 
 # Skip these directories and files

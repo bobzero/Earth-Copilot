@@ -18,9 +18,9 @@
 
 param(
     [string]$SubscriptionId = "",
-    [string]$ResourceGroup = "rg-earthcopilot",
+    [string]$ResourceGroup = "rg-planetaryexplorer",
     [string]$AccountName = "",
-    [string]$ProjectName = "earth-copilot-agents",
+    [string]$ProjectName = "planetary-explorer-agents",
     [string]$ContainerAppName = "",
     [string]$ApiVersion = "2025-04-01-preview"
 )
@@ -87,8 +87,8 @@ $projectBody = @{
     location = "eastus2"
     identity = @{ type = "SystemAssigned" }
     properties = @{
-        description = "Earth Copilot GEOINT Agent Project"
-        displayName = "Earth Copilot Agents"
+        description = "Planetary Explorer GEOINT Agent Project"
+        displayName = "Planetary Explorer Agents"
     }
 } | ConvertTo-Json -Depth 3
 $projectFile = [System.IO.Path]::GetTempFileName()

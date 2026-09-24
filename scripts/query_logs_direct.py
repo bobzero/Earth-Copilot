@@ -2,13 +2,14 @@
 Direct Azure Log Analytics Query Script
 Query logs directly and display results cleanly
 """
+import os
 import subprocess
 import json
 import sys
 from datetime import datetime, timedelta
 
 # Configuration
-WORKSPACE_ID = "cda38287-9eca-4375-9b39-8ac7a7cc1291"
+WORKSPACE_ID = os.environ.get("LOG_ANALYTICS_WORKSPACE_ID", "")
 TIME_WINDOW_MINUTES = 120
 
 # KQL Query to find recent wildfire/MODIS queries

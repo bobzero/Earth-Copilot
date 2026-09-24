@@ -1,6 +1,6 @@
-# Contributing to Earth Copilot
+# Contributing to Planetary Explorer
 
-Thank you for your interest in contributing to Earth Copilot! This document provides guidelines and information for contributors.
+Thank you for your interest in contributing to Planetary Explorer! This document provides guidelines and information for contributors.
 
 ##  Contributor License Agreement
 
@@ -12,57 +12,56 @@ Thank you for your interest in contributing to Earth Copilot! This document prov
 
 Before contributing, ensure you have the required technical background:
 
-- **Azure Cloud Services** - Understanding of Azure AI Foundry, Azure Maps, Azure Functions, and Azure AI Search
-- **Python Development** - Experience with Python 3.12+, Azure Functions, and package management
-- **React/TypeScript** - Frontend development with modern JavaScript frameworks and Vite
-- **AI/ML Concepts** - Familiarity with LLMs, Semantic Kernel, and natural language processing
-- **Geospatial Data** - Knowledge of STAC (SpatioTemporal Asset Catalog) standards
-- **Infrastructure as Code** - Experience with Bicep templates and Azure resource deployment
+- **Azure Cloud Services** — Understanding of Azure Container Apps, Azure AI Foundry, Azure Maps, and Azure AI Search
+- **Python Development** — Python 3.12+ with FastAPI / async
+- **React / TypeScript** — Frontend development with Vite
+- **AI / LLM Concepts** — Familiarity with Azure OpenAI and tool/function calling
+- **Geospatial Data** — Knowledge of STAC (SpatioTemporal Asset Catalog) standards
+- **Infrastructure as Code** — Experience with Bicep and the Azure Developer CLI (`azd`)
 
 ### Development Environment Setup
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/microsoft/Earth-Copilot.git
-   cd Earth-Copilot
+   git clone https://github.com/microsoft/Planetary-Explorer.git
+   cd Planetary-Explorer
    ```
 
-2. **Set up your development environment**:
+2. **Install root dev tooling** (linters / formatters / pytest):
    ```bash
-   # Install Python dependencies
    pip install -r requirements.txt
-   
-   # Install frontend dependencies
-   cd earth-copilot/react-ui
-   npm install
-   cd ../..
-   
-   # Run setup script for automated configuration
-   ./setup-all-services.sh
    ```
 
-3. **Configure environment variables**:
-   - Copy `.env.example` to `.env` and fill in your Azure service credentials
-   - Copy `earth-copilot/react-ui/.env.example` to `earth-copilot/react-ui/.env` with frontend variables
-   - Configure `earth-copilot/router-function-app/local.settings.json` based on the example
+3. **Install per-service runtime dependencies** as needed:
+   ```bash
+   # FastAPI backend (Container App)
+   pip install -r planetary-explorer/container-app/requirements.txt
+
+   # Web UI
+   cd planetary-explorer/web-ui && npm install && cd ../..
+   ```
+
+4. **Provision Azure resources** with the Azure Developer CLI:
+   ```bash
+   azd auth login
+   azd init      # picks up the root azure.yaml
+   azd up        # provisions infra + builds + deploys
+   ```
+   See [`QUICK_DEPLOY.md`](QUICK_DEPLOY.md) for the full deploy walkthrough and feature toggles (Fabric, MPC Pro, private endpoints).
 
 ##  Build Instructions
 
 ### Local Development
 
-**Start all services** (recommended):
+**Backend** (FastAPI container):
 ```bash
-./run-all-services.sh
+cd planetary-explorer/container-app
+uvicorn fastapi_app:app --reload --port 8080
 ```
 
-**Manual development** (two terminals):
+**Frontend** (React / Vite):
 ```bash
-# Terminal 1: Backend (Azure Functions)
-cd earth-copilot/router-function-app
-func host start
-
-# Terminal 2: Frontend (React UI)
-cd earth-copilot/react-ui
+cd planetary-explorer/web-ui
 npm run dev
 ```
 
@@ -70,30 +69,25 @@ Access the application at: http://localhost:5173
 
 ### Testing
 
-Run the test suites:
 ```bash
-# Unit tests
-python -m pytest tests/unit/
+# Backend tests
+cd planetary-explorer/container-app
+python -m pytest
 
-# Integration tests
-python -m pytest tests/integration/
-
-# End-to-end tests
-python -m pytest tests/e2e/
-
-# Verify requirements compatibility
-python verify-requirements.py
+# Frontend tests
+cd planetary-explorer/web-ui
+npm test
 ```
 
 ##  Coding Conventions
 
 ### Python Code Standards
 
-- **Style**: Follow PEP 8 guidelines
-- **Type Hints**: Use type annotations for all function parameters and return values
-- **Docstrings**: Use Google-style docstrings for all public functions and classes
-- **Error Handling**: Implement comprehensive error handling with appropriate logging
-- **Dependencies**: Pin exact versions in requirements.txt (especially Semantic Kernel 1.36.2)
+- **Style**: Follow PEP 8; we use `black` + `ruff` (installed via root `requirements.txt`).
+- **Type Hints**: Use type annotations for all function parameters and return values.
+- **Docstrings**: Google-style docstrings for all public functions and classes.
+- **Error Handling**: Comprehensive error handling with structured logging.
+- **Dependencies**: Pin minimum versions in the per-service `requirements.txt`. The Semantic Kernel runtime has been retired in favor of `sk_shim.py` — do not reintroduce it.
 
 **Example**:
 ```python
@@ -245,4 +239,4 @@ For new features, please provide:
 
 ---
 
-Thank you for contributing to Earth Copilot! Together, we're making Earth science data more accessible to researchers worldwide. 
+Thank you for contributing to Planetary Explorer! Together, we're making Earth science data more accessible to researchers worldwide. 

@@ -1,0 +1,102 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "planetaryexplorer"
+    },
+    "location": {
+      "value": "eastus2"
+    },
+    "cloudEnvironment": {
+      "value": "Commercial"
+    },
+    "containerImage": {
+      "value": ""
+    },
+    "azureOpenAiEndpoint": {
+      "value": "https://expaoaieus2.openai.azure.com/"
+    },
+    "azureAiProjectEndpoint": {
+      "value": ""
+    },
+    "azureOpenAiDeploymentName": {
+      "value": "gpt-4o"
+    },
+    "azureOpenAiFastDeployment": {
+      "value": "gpt-4o-mini"
+    },
+    "useManagedIdentity": {
+      "value": false
+    },
+    "deployAIFoundry": {
+      "value": false
+    },
+    "deployBotService": {
+      "value": false
+    },
+    "enableAuthentication": {
+      "value": false
+    },
+    "microsoftEntraClientId": {
+      "value": ""
+    },
+    "microsoftEntraTenantId": {
+      "value": ""
+    },
+    "microsoftEntraClientSecret": {
+      "value": ""
+    },
+    "acrAgentPoolName": {
+      "value": "buildpool"
+    },
+    "acrAgentPoolCount": {
+      "value": 1
+    },
+    "enableFabric": {
+      "value": false
+    },
+    "deployFabricCapacity": {
+      "value": false
+    },
+    "fabricCapacityResourceId": {
+      "value": ""
+    },
+    "fabricWorkspaceId": {
+      "value": ""
+    },
+    "fabricLakehouseId": {
+      "value": ""
+    },
+    "enableMpcPro": {
+      "value": false
+    },
+    "mpcProStacUrl": {
+      "value": ""
+    },
+    "enablePrivateEndpoints": {
+      "value": false
+    },
+    "deployWeatherStub": {
+      "value": false
+    },
+    "weatherStubImageName": {
+      "value": "planetary-explorer-weather-stub:latest"
+    },
+    "auroraEndpointUrl": {
+      "value": ""
+    },
+    "earth2FcnEndpointUrl": {
+      "value": ""
+    },
+    "maiWeatherEndpointUrl": {
+      "value": ""
+    },
+    "maiWeatherScorePath": {
+      "value": "/mai-weather/score"
+    },
+    "forecastAgentEnabled": {
+      "value": true
+    }
+  }
+}
